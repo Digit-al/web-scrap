@@ -21,6 +21,13 @@
 - [2026-11-12] **Userland imposé par l'utilisateur, pas de systemd** : unité
   `mcp-scraping.service` supprimée. Autodémarrage sans systemd via
   `./install.sh --cron` (entrée `@reboot` dans le crontab de l'user).
+- [2026-11-12] **Outil `http_call`** (appels API) : methods
+  GET/POST/PUT/PATCH/DELETE ; `body` string (tel quel) ou dict/liste
+  (JSON, `Content-Type: application/json` auto si absent) ; query params
+  dans l'URL. Les 4xx/5xx sont renvoyés comme résultats normaux
+  (`status` + corps), PAS comme erreurs MCP — utile pour lire les
+  messages d'erreur d'API. Corps JSON pretty-printé. Mêmes protections
+  que `scrape` : allowlist, MAX_BYTES, options TLS, sans proxy.
 - [2026-11-12] **HTTPS / TLS** : vérification des certificats active par
   défaut (bundle `certifi` d'httpx). `SCRAPE_CA_BUNDLE=<pem>` = bundle CA
   custom (il *remplace* le store par défaut : concaténer le bundle
@@ -68,12 +75,14 @@
 - Objectif : serveur MCP HTTP de web scraping (URL internes, sans proxy),
   installable sur une VM, **tournant en userland (sans systemd)**.
 - Fait : projet complet dans `/home/d1f34069/mcp-scraping/` — `server.py`
-  (outils `scrape` text/markdown/html/links/tables/json + `search` regex,
-  options TLS `SCRAPE_CA_BUNDLE`/`SCRAPE_INSECURE`), Dockerfile,
+  (outils `scrape` text/markdown/html/links/tables/json + `search` regex
+  + `http_call` API, options TLS `SCRAPE_CA_BUNDLE`/`SCRAPE_INSECURE`),
+  Dockerfile,
   docker-compose, `install.sh` (userland), `run.sh`, README, tests.
   **Tous les tests passent** (`test/test_client.py` : formats, liens,
-  tables, recherche, erreurs ; auth 401/200 validée ; matrice TLS) y
-  compris via `run.sh start`.
+  tables, recherche, erreurs, http_call GET XML / POST JSON / 404 /
+  méthode invalide ; auth 401/200 validée ; matrice TLS) y compris via
+  `run.sh start`.
 - Prochain : déploiement sur la VM de l'utilisateur (Docker ou
   `install.sh` + `run.sh`), connexion du client MCP sur
   `http://IP-VM:8000/mcp`. Code poussé sur GitHub : Digit-al/web-scrap.
@@ -81,5 +90,7 @@
 ## Faits durs
 - [2026-11-12] Versions testées : python 3.12.13, mcp 1.x (FastMCP),
   starlette 1.10.0, httpx 0.28.1, lxml 6.1.3, markdownify 1.2.3.
-- [2026-11-12] Test local : serveur sur 8123 + page HTML locale sur 8099
-  (`test/test.html`, serveur `python -m http.server`).
+- [2026-11-12] Test local : serveur MCP sur 8123 + page HTML sur 8099
+  (`test/test.html`, `python -m http.server`) + fixture API
+  `test/api_fixture.py` sur 8098 (`/api/echo` renvoie
+  method/headers/body, `/api/xml`, `/api/notfound` → 404 JSON).

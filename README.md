@@ -12,6 +12,7 @@ via `trust_env=False`).
 |---|---|
 | `scrape(url, format, max_chars, headers)` | Récupère une URL. `format` : `text`, `markdown`, `html`, `links`, `tables` (CSV), `json`. `headers` pour pages protégées (Cookie, Authorization…). |
 | `search(url, pattern, ignore_case, max_matches, context_chars, headers)` | Recherche regex dans le texte de la page, avec contexte. |
+| `http_call(url, method, headers, body, max_chars)` | Appelle une API HTTP. `method` : `GET`/`POST`/`PUT`/`PATCH`/`DELETE` (query parameters dans `url`). `body` : string tel quel, ou dict/liste envoyé en JSON. Renvoie `status` + corps (JSON pretty-printé si possible) ; les 4xx/5xx sont renvoyés comme résultats normaux. |
 
 ## Configuration (variables d'environnement)
 
@@ -88,6 +89,7 @@ Exemples d'appels :
 ```json
 { "name": "scrape", "arguments": { "url": "http://intranet:8080/rapport", "format": "tables" } }
 { "name": "search", "arguments": { "url": "http://intranet:8080/rapport", "pattern": "erreur|fail" } }
+{ "name": "http_call", "arguments": { "url": "https://api/ventes?mois=2026-01", "method": "POST", "headers": { "Authorization": "Bearer TOKEN" }, "body": { "code": "042" } } }
 ```
 
 ## Sécurité

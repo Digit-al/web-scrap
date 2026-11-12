@@ -63,7 +63,8 @@ mcp = FastMCP(
         "Web scraping tools. URLs are fetched directly from the VM "
         "(no proxy): internal/intranet addresses are therefore "
         "reachable. Formats available for `scrape`: text, markdown, "
-        "html, links, tables, json."
+        "html, links, tables, json. Use `http_call` for API calls "
+        "(GET/POST/PUT/PATCH/DELETE, request body, JSON/XML responses)."
     ),
     host=HOST,
     port=PORT,
@@ -138,6 +139,31 @@ def _fetch(url: str, headers: dict | None = None) -> tuple[bytes, str]:
             f"Response of {len(data)} bytes > SCRAPE_MAX_BYTES ({MAX_BYTES})."
         )
     return data, r.headers.get("content-type", "")
+
+
+def _raw_request(
+    url: str,
+    method: str,
+    headers: dict | None = None,
+    content: bytes | None = None,
+) -> tuple[bytes, int, str]:
+    """Perform an HTTP request; returns (body, status, content_type).
+
+    Non-2xx statuses are returned as data, not raised: API callers
+    often need the error body (e.g. a 4xx with a JSON message).
+    """
+    _check_url(url)
+    client = get_client()
+    try:
+        r = client.request(method, url, headers=headers or {}, content=content)
+    except httpx.RequestError as e:
+        raise ValueError(f"Request failed for {url}: {e}") from None
+    data = r.content
+    if len(data) > MAX_BYTES:
+        raise ValueError(
+            f"Response of {len(data)} bytes > SCRAPE_MAX_BYTES ({MAX_BYTES})."
+        )
+    return data, r.status_code, r.headers.get("content-type", "")
 
 
 def _soup(data: bytes, content_type: str) -> BeautifulSoup:
@@ -295,6 +321,70 @@ def search(
             "count": len(matches),
             "truncated": len(matches) >= max_matches,
             "matches": matches,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@mcp.tool()
+def http_call(
+    url: str,
+    method: str = "GET",
+    headers: dict | None = None,
+    body: str | dict | list | None = None,
+    max_chars: int = 20000,
+) -> str:
+    """Call an HTTP API endpoint and return its response.
+
+    Use this for APIs (unlike `scrape`, which is a GET page extractor).
+    Query parameters go in `url`. Non-2xx statuses are returned as
+    normal results (with their body), not as tool errors.
+
+    Args:
+        url: http/https URL to call (query string included).
+        method: HTTP method: GET, POST, PUT, PATCH or DELETE
+            (default GET).
+        headers: optional HTTP headers (e.g. Authorization, Accept,
+            Content-Type, Cookie).
+        body: optional request body. A string is sent as-is; a
+            dict/list is sent as JSON (Content-Type: application/json
+            is set automatically if not already given).
+        max_chars: max number of characters of the response body to
+            return (0 = unlimited, otherwise 20000).
+    """
+    m = method.strip().upper()
+    if m not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+        raise ValueError(
+            f"Method {method!r} not supported. "
+            "Use: GET, POST, PUT, PATCH, DELETE."
+        )
+    req_headers = dict(headers or {})
+    content: bytes | None = None
+    if body is not None:
+        if isinstance(body, (dict, list)):
+            content = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            if not any(k.lower() == "content-type" for k in req_headers):
+                req_headers["Content-Type"] = "application/json"
+        else:
+            content = str(body).encode("utf-8")
+    data, status, ctype = _raw_request(url, m, req_headers, content)
+    text = data.decode("utf-8", errors="replace")
+    # Pretty-print JSON responses when possible.
+    try:
+        text = json.dumps(json.loads(text), ensure_ascii=False, indent=2)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    text, truncated = _truncate(text, max_chars)
+    return json.dumps(
+        {
+            "url": url,
+            "method": m,
+            "status": status,
+            "ok": 200 <= status < 300,
+            "content_type": ctype,
+            "truncated": truncated,
+            "body": text,
         },
         ensure_ascii=False,
         indent=2,
