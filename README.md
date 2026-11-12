@@ -22,6 +22,8 @@ via `trust_env=False`).
 | `SCRAPE_MAX_BYTES` | `10485760` | Taille max de réponse (octets) |
 | `SCRAPE_USER_AGENT` | `mcp-scraping-server/1.0` | User-Agent envoyé |
 | `SCRAPE_ALLOWED_HOSTS` | *(vide = tous)* | Liste blanche, host séparés par des virgules (sous-domaines inclus) |
+| `SCRAPE_CA_BUNDLE` | *(vide = store par défaut)* | Bundle CA (PEM) pour vérifier les certificats HTTPS, ex. CA interne |
+| `SCRAPE_INSECURE` | *(vide = vérif. active)* | Si vrai (`1`/`true`/`yes`) : ignore la vérification des certificats TLS |
 | `MCP_TOKEN` | *(vide = sans auth)* | Si défini : le client doit envoyer `Authorization: Bearer <token>` |
 
 ## Installation sur la VM
@@ -92,6 +94,12 @@ Exemples d'appels :
 
 - **Sans proxy** : `httpx(trust_env=False)` — les variables `*_PROXY` de la
   VM ne sont jamais utilisées ; les URL internes passent directement.
+- **HTTPS** : la vérification des certificats est **active par défaut**.
+  Pour une CA interne (certificats auto-signés de l'intranet), pointez
+  `SCRAPE_CA_BUNDLE` vers votre bundle PEM (il *remplace* le store par
+  défaut : concaténez-y le bundle `certifi` si vous voulez aussi garder
+  les CAs publiques). `SCRAPE_INSECURE=1` désactive la vérification
+  (à réserver aux cas très spécifiques).
 - **Liste blanche** optionnelle via `SCRAPE_ALLOWED_HOSTS` (limitation
   SSRF : seul le trafic vers les hôtes listés est possible).
 - **Token** optionnel via `MCP_TOKEN`.

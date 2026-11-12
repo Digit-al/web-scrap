@@ -46,6 +46,16 @@ ALLOWED_HOSTS = {
 # Optional token: if set, every MCP call requires
 # Authorization: Bearer <token>.
 MCP_TOKEN = os.environ.get("MCP_TOKEN", "")
+# Optional custom CA bundle (PEM file) used to verify HTTPS
+# certificates, e.g. for a corporate internal CA. It REPLACES the
+# default trust store (append certifi's bundle to also keep public CAs).
+CA_BUNDLE = os.environ.get("SCRAPE_CA_BUNDLE", "").strip()
+# If true (1/true/yes/on), skip TLS certificate verification.
+INSECURE = os.environ.get("SCRAPE_INSECURE", "").strip().lower() in (
+    "1", "true", "yes", "on"
+)
+if CA_BUNDLE and not os.path.isfile(CA_BUNDLE):
+    raise SystemExit(f"SCRAPE_CA_BUNDLE does not exist: {CA_BUNDLE!r}")
 
 mcp = FastMCP(
     "web-scraping",
@@ -64,11 +74,20 @@ _client: httpx.Client | None = None
 
 
 def get_client() -> httpx.Client:
-    """Shared HTTP client. trust_env=False => ignores HTTP(S)_PROXY etc."""
+    """Shared HTTP client.
+
+    trust_env=False => ignores HTTP(S)_PROXY etc. (direct fetching of
+    internal URLs). TLS: custom CA bundle (SCRAPE_CA_BUNDLE) or
+    verification disabled (SCRAPE_INSECURE).
+    """
     global _client
     if _client is None:
+        verify: str | bool = CA_BUNDLE or True
+        if INSECURE:
+            verify = False
         _client = httpx.Client(
             trust_env=False,
+            verify=verify,
             timeout=TIMEOUT,
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
@@ -324,4 +343,11 @@ if __name__ == "__main__":
         print("Allowed hosts:", sorted(ALLOWED_HOSTS), flush=True)
     if MCP_TOKEN:
         print("Auth: Bearer token enabled", flush=True)
+    if INSECURE:
+        print(
+            "TLS: certificate verification DISABLED (SCRAPE_INSECURE)",
+            flush=True,
+        )
+    elif CA_BUNDLE:
+        print("TLS: custom CA bundle:", CA_BUNDLE, flush=True)
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")
