@@ -19,6 +19,7 @@ via `trust_env=False`).
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `MCP_HOST` / `MCP_PORT` | `0.0.0.0` / `8000` | Bind du serveur |
+| `MCP_TRANSPORT_ALLOWED_HOSTS` | *(vide = auto)* | En-têtes `Host` acceptés sur `/mcp` (FQDN derrière reverse proxy) |
 | `SCRAPE_TIMEOUT` | `30` | Timeout HTTP (s) |
 | `SCRAPE_MAX_BYTES` | `10485760` | Taille max de réponse (octets) |
 | `SCRAPE_USER_AGENT` | `mcp-scraping-server/1.0` | User-Agent envoyé |
@@ -26,6 +27,13 @@ via `trust_env=False`).
 | `SCRAPE_CA_BUNDLE` | *(vide = store par défaut)* | Bundle CA (PEM) pour vérifier les certificats HTTPS, ex. CA interne |
 | `SCRAPE_INSECURE` | *(vide = vérif. active)* | Si vrai (`1`/`true`/`yes`) : ignore la vérification des certificats TLS |
 | `MCP_TOKEN` | *(vide = sans auth)* | Si défini : le client doit envoyer `Authorization: Bearer <token>` |
+
+> **Derrière un reverse proxy (HAProxy, nginx…)** : le transport
+> streamable HTTP du SDK MCP valide l'en-tête `Host` (protection
+> anti-DNS-rebinding). Si votre proxy transmet le FQDN public
+> (`Host: mcp.monentreprise.fr`), le serveur renvoie
+> `Invalid Host header` (421) sur `/mcp` à moins de l'autoriser :
+> `MCP_TRANSPORT_ALLOWED_HOSTS=mcp.monentreprise.fr` puis `./run.sh restart`.
 
 ## Installation sur la VM
 

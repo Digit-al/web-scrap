@@ -42,6 +42,17 @@
   David Rossignol <david@rsgnl.fr>. `.gitignore` : `.venv/`, `__pycache__/`,
   `logs/`, `*.log`, `.env` (réel), `.mcp-scraping.pid`. Remote `origin`
   = URL propre sans token (token jamais stocké dans `.git/config`).
+- [2026-11-12] **Reverse proxy (HAProxy) → « Invalid Host header » (421) sur
+  `/mcp`** : le SDK MCP (mcp 1.30) applique une protection
+  anti-DNS-rebinding sur le transport streamable HTTP
+  (`TransportSecurityMiddleware`). Bind sur 127.0.0.1/localhost/::1 ⇒
+  FastMCP active auto `allowed_hosts=[127.0.0.1:*, localhost:*, [::1]:*]` ;
+  derrière un proxy qui transmet le FQDN public, le header `Host` est
+  rejeté (421) — `/health` (route Starlette ajoutée) n'y est PAS soumis.
+  Fix : `MCP_TRANSPORT_ALLOWED_HOSTS` (hosts CSV) alimente
+  `TransportSecuritySettings.allowed_hosts` + `allowed_origins` dérivés
+  (http/https, ±port) ; vide ⇒ `None` ⇒ comportement défaut du SDK.
+  Testé : FQDN→200, localhost→200, Host inconnu→421 (protection conservée).
 
 ## Écueils
 - [2026-11-12] `mcp==2.3.0` installé par défaut → `ModuleNotFoundError:
@@ -76,7 +87,8 @@
   installable sur une VM, **tournant en userland (sans systemd)**.
 - Fait : projet complet dans `/home/d1f34069/mcp-scraping/` — `server.py`
   (outils `scrape` text/markdown/html/links/tables/json + `search` regex
-  + `http_call` API, options TLS `SCRAPE_CA_BUNDLE`/`SCRAPE_INSECURE`),
+  + `http_call` API, options TLS `SCRAPE_CA_BUNDLE`/`SCRAPE_INSECURE`,
+  `MCP_TRANSPORT_ALLOWED_HOSTS` pour reverse proxy),
   Dockerfile,
   docker-compose, `install.sh` (userland), `run.sh`, README, tests.
   **Tous les tests passent** (`test/test_client.py` : formats, liens,

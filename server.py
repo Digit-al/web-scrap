@@ -25,6 +25,7 @@ import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 # --------------------------------------------------------------------------
 # Configuration (environment variables)
@@ -56,6 +57,48 @@ INSECURE = os.environ.get("SCRAPE_INSECURE", "").strip().lower() in (
 )
 if CA_BUNDLE and not os.path.isfile(CA_BUNDLE):
     raise SystemExit(f"SCRAPE_CA_BUNDLE does not exist: {CA_BUNDLE!r}")
+# Host-header allowlist for the /mcp endpoint (DNS rebinding protection).
+# Comma-separated Host values accepted from the client, e.g. your public
+# FQDN when the server sits behind a reverse proxy:
+#     MCP_TRANSPORT_ALLOWED_HOSTS=mcp.example.com
+# Empty = SDK default (a localhost/127.0.0.1 bind auto-allows local hosts).
+TRANSPORT_ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get("MCP_TRANSPORT_ALLOWED_HOSTS", "").split(",")
+    if h.strip()
+]
+
+
+def _build_transport_security():
+    """Build the /mcp transport security (Host/Origin validation).
+
+    Returns None when no custom host list is configured, so FastMCP keeps
+    its default behaviour (a localhost/127.0.0.1/::1 bind auto-allows local
+    hosts). Otherwise, allow the listed hosts (plus localhost, for local
+    testing) on both the Host and Origin headers.
+    """
+    if not TRANSPORT_ALLOWED_HOSTS:
+        return None
+    allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    allowed_origins = [
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+    ]
+    for h in TRANSPORT_ALLOWED_HOSTS:
+        allowed_hosts.append(h)
+        if not h.endswith(":*"):
+            allowed_hosts.append(h + ":*")
+        base = h[:-2] if h.endswith(":*") else h
+        for scheme in ("http", "https"):
+            allowed_origins.append(f"{scheme}://{base}")
+            allowed_origins.append(f"{scheme}://{base}:*")
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
+
 
 mcp = FastMCP(
     "web-scraping",
@@ -69,6 +112,7 @@ mcp = FastMCP(
     host=HOST,
     port=PORT,
     stateless_http=True,  # stateless: simple behind a reverse proxy
+    transport_security=_build_transport_security(),
 )
 
 _client: httpx.Client | None = None
