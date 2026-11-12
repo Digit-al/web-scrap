@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Page test scraping</title></head>
+<body>
+<main>
+<h1>Rapport interne 2026</h1>
+<p>Statut du système : <strong>OK</strong>. Erreur détectée :
+<span class="err">ERREUR-4242</span> dans le module paiement.</p>
+<a href="/docs/intro.html">Docs intro</a>
+<a href="http://10.0.0.5:9000/api/v1/statuts">API interne statuts</a>
+<a href="https://example.com/ext">Exemple externe</a>
+<table>
+  <thead><tr><th>Service</th><th>État</th><th>P95 (ms)</th></tr></thead>
+  <tbody>
+    <tr><td>auth</td><td>OK</td><td>42</td></tr>
+    <tr><td>paiement</td><td>DÉGRADÉ</td><td>1204</td></tr>
+  </tbody>
+</table>
+</main>
+</body>
+</html>

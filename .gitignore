@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment
+.venv/
+
+# Local runtime / logs
+logs/
+*.log
+.mcp-scraping.pid
+
+# Real local config (may contain secrets). Keep .env.example tracked.
+.env
