@@ -19,6 +19,7 @@ import io
 import json
 import os
 import re
+import threading
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -107,7 +108,10 @@ mcp = FastMCP(
         "(no proxy): internal/intranet addresses are therefore "
         "reachable. Formats available for `scrape`: text, markdown, "
         "html, links, tables, json. Use `http_call` for API calls "
-        "(GET/POST/PUT/PATCH/DELETE, request body, JSON/XML responses)."
+        "(GET/POST/PUT/PATCH/DELETE, request body, JSON/XML responses). "
+        "Each tool accepts an optional `proxy`: empty = direct, "
+        "'system' = use the VM's HTTP(S)_PROXY/NO_PROXY env vars, or a "
+        "proxy URL (http://user:pass@host:port)."
     ),
     host=HOST,
     port=PORT,
@@ -115,29 +119,65 @@ mcp = FastMCP(
     transport_security=_build_transport_security(),
 )
 
-_client: httpx.Client | None = None
+# Shared HTTP clients, one per proxy mode: "direct" (default), "system"
+# (VM environment) or one per explicit proxy URL.
+#
+# Direct/URL modes use trust_env=False => HTTP(S)_PROXY env vars are
+# ignored (direct fetching of internal URLs by default). "System" mode
+# uses trust_env=True so the env vars ARE honored.
+_clients: dict[str, httpx.Client] = {}
+_clients_lock = threading.Lock()
 
 
-def get_client() -> httpx.Client:
-    """Shared HTTP client.
+def _proxy_key(proxy: str) -> tuple[str, str | None]:
+    """Resolve the `proxy` tool parameter into (cache key, proxy URL).
 
-    trust_env=False => ignores HTTP(S)_PROXY etc. (direct fetching of
-    internal URLs). TLS: custom CA bundle (SCRAPE_CA_BUNDLE) or
-    verification disabled (SCRAPE_INSECURE).
+    - "" / "direct"  -> direct connection
+    - "system"      -> use HTTP(S)_PROXY / NO_PROXY of the VM
+    - http/https URL -> route through that proxy
     """
-    global _client
-    if _client is None:
-        verify: str | bool = CA_BUNDLE or True
-        if INSECURE:
-            verify = False
-        _client = httpx.Client(
-            trust_env=False,
-            verify=verify,
-            timeout=TIMEOUT,
-            follow_redirects=True,
-            headers={"User-Agent": USER_AGENT},
+    mode = (proxy or "").strip()
+    low = mode.lower()
+    if low in ("", "direct", "no-proxy", "noproxy"):
+        return "direct", None
+    if low == "system":
+        return "system", None
+    p = urlparse(mode)
+    if p.scheme not in ("http", "https") or not p.hostname:
+        raise ValueError(
+            f"Invalid proxy {proxy!r}: use empty (direct), 'system', "
+            "or a proxy URL like http://user:pass@proxy:3128."
         )
-    return _client
+    return "url:" + low, low
+
+
+def get_client(proxy: str = "") -> httpx.Client:
+    """Shared HTTP client for a given proxy mode.
+
+    TLS: custom CA bundle (SCRAPE_CA_BUNDLE) or verification disabled
+    (SCRAPE_INSECURE), in all proxy modes.
+    """
+    key, proxy_url = _proxy_key(proxy)
+    with _clients_lock:
+        client = _clients.get(key)
+        if client is None:
+            verify: str | bool = CA_BUNDLE or True
+            if INSECURE:
+                verify = False
+            kwargs = dict(
+                verify=verify,
+                timeout=TIMEOUT,
+                follow_redirects=True,
+                headers={"User-Agent": USER_AGENT},
+            )
+            if key == "system":
+                client = httpx.Client(trust_env=True, **kwargs)
+            else:
+                client = httpx.Client(
+                    trust_env=False, proxy=proxy_url, **kwargs
+                )
+            _clients[key] = client
+        return client
 
 
 # --------------------------------------------------------------------------
@@ -163,10 +203,12 @@ def _check_url(url: str) -> None:
             )
 
 
-def _fetch(url: str, headers: dict | None = None) -> tuple[bytes, str]:
+def _fetch(
+    url: str, headers: dict | None = None, proxy: str = ""
+) -> tuple[bytes, str]:
     """Fetch url; returns (content, content_type)."""
     _check_url(url)
-    client = get_client()
+    client = get_client(proxy)
     try:
         r = client.get(url, headers=headers or {})
         r.raise_for_status()
@@ -190,6 +232,7 @@ def _raw_request(
     method: str,
     headers: dict | None = None,
     content: bytes | None = None,
+    proxy: str = "",
 ) -> tuple[bytes, int, str]:
     """Perform an HTTP request; returns (body, status, content_type).
 
@@ -197,7 +240,7 @@ def _raw_request(
     often need the error body (e.g. a 4xx with a JSON message).
     """
     _check_url(url)
-    client = get_client()
+    client = get_client(proxy)
     try:
         r = client.request(method, url, headers=headers or {}, content=content)
     except httpx.RequestError as e:
@@ -233,12 +276,13 @@ def scrape(
     format: str = "text",
     max_chars: int = 20000,
     headers: dict | None = None,
+    proxy: str = "",
 ) -> str:
     """Fetch a URL and extract its content.
 
     Args:
         url: http/https URL to fetch (internal addresses are
-            allowed, no proxy).
+            allowed, no proxy by default).
         format: `text` (readable text), `markdown` (HTML to Markdown),
             `html` (raw HTML), `links` (list of links), `tables`
             (tables as CSV), `json` (raw body).
@@ -246,9 +290,12 @@ def scrape(
             otherwise 20000).
         headers: optional HTTP headers to send (e.g. Cookie,
             Authorization) for protected internal pages.
+        proxy: optional proxy mode: empty = direct, "system" = use
+            the VM's HTTP(S)_PROXY/NO_PROXY env vars, or a proxy URL
+            (http://user:pass@host:port).
     """
     fmt = format.strip().lower()
-    data, ctype = _fetch(url, headers)
+    data, ctype = _fetch(url, headers, proxy)
     truncated = False
 
     if fmt == "json":
@@ -319,6 +366,7 @@ def search(
     max_matches: int = 50,
     context_chars: int = 150,
     headers: dict | None = None,
+    proxy: str = "",
 ) -> str:
     """Search for a pattern (Python regex) in a page's text.
 
@@ -330,8 +378,11 @@ def search(
         context_chars: number of context characters around
             each match (default 150).
         headers: optional HTTP headers.
+        proxy: optional proxy mode: empty = direct, "system" = use
+            the VM's HTTP(S)_PROXY/NO_PROXY env vars, or a proxy URL
+            (http://user:pass@host:port).
     """
-    data, ctype = _fetch(url, headers)
+    data, ctype = _fetch(url, headers, proxy)
     soup = _soup(data, ctype)
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
@@ -378,6 +429,7 @@ def http_call(
     headers: dict | None = None,
     body: str | dict | list | None = None,
     max_chars: int = 20000,
+    proxy: str = "",
 ) -> str:
     """Call an HTTP API endpoint and return its response.
 
@@ -396,6 +448,9 @@ def http_call(
             is set automatically if not already given).
         max_chars: max number of characters of the response body to
             return (0 = unlimited, otherwise 20000).
+        proxy: optional proxy mode: empty = direct, "system" = use
+            the VM's HTTP(S)_PROXY/NO_PROXY env vars, or a proxy URL
+            (http://user:pass@host:port).
     """
     m = method.strip().upper()
     if m not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
@@ -412,7 +467,7 @@ def http_call(
                 req_headers["Content-Type"] = "application/json"
         else:
             content = str(body).encode("utf-8")
-    data, status, ctype = _raw_request(url, m, req_headers, content)
+    data, status, ctype = _raw_request(url, m, req_headers, content, proxy)
     text = data.decode("utf-8", errors="replace")
     # Pretty-print JSON responses when possible.
     try:

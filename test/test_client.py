@@ -9,6 +9,7 @@ from mcp.client.streamable_http import streamablehttp_client
 URL = "http://127.0.0.1:8123/mcp"
 PAGE = "http://127.0.0.1:8099/test.html"
 API = "http://127.0.0.1:8098"  # fixture api_fixture.py
+PROXY = "http://127.0.0.1:8097"  # fixture proxy_fixture.py
 
 
 async def main() -> int:
@@ -96,7 +97,41 @@ async def main() -> int:
             assert r.isError, "méthode invalide doit renvoyer isError"
             print("OK http_call : méthode invalide → erreur MCP propre")
 
-            # 10. erreur propre sur URL inaccessible (résultat isError ou exception)
+            # 10. http_call via proxy URL (le trafic passe par le proxy)
+            r = await session.call_tool(
+                "http_call", {"url": PAGE, "proxy": PROXY}
+            )
+            data = json.loads(r.content[0].text)
+            assert data["status"] == 200 and data["ok"] is True
+            marker = json.loads(data["body"])
+            assert marker["via_proxy"] is True
+            assert marker["requested"] == PAGE
+            print("OK http_call proxy : trafic routé via le proxy")
+
+            # 11. scrape via proxy (le paramètre existe sur tous les outils)
+            r = await session.call_tool(
+                "scrape",
+                {"url": PAGE, "format": "json", "proxy": PROXY},
+            )
+            data = json.loads(r.content[0].text)
+            assert json.loads(data["content"])["via_proxy"] is True
+            print("OK scrape proxy : paramètre proxy opérationnel")
+
+            # 12. proxy invalide (pas de scheme) → erreur MCP propre
+            r = await session.call_tool(
+                "http_call", {"url": PAGE, "proxy": "proxy.host:3128"}
+            )
+            assert r.isError, "proxy invalide doit renvoyer isError"
+            print("OK proxy : URL invalide → erreur MCP propre")
+
+            # 13. proxy injoignable → erreur MCP propre (isError)
+            r = await session.call_tool(
+                "http_call", {"url": PAGE, "proxy": "http://127.0.0.1:1"}
+            )
+            assert r.isError, "proxy injoignable doit renvoyer isError"
+            print("OK proxy : proxy injoignable → erreur MCP propre")
+
+            # 14. erreur propre sur URL inaccessible (résultat isError ou exception)
             try:
                 r = await session.call_tool(
                     "scrape",

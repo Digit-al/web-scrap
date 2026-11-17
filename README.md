@@ -10,9 +10,14 @@ via `trust_env=False`).
 
 | Outil | Description |
 |---|---|
-| `scrape(url, format, max_chars, headers)` | Récupère une URL. `format` : `text`, `markdown`, `html`, `links`, `tables` (CSV), `json`. `headers` pour pages protégées (Cookie, Authorization…). |
-| `search(url, pattern, ignore_case, max_matches, context_chars, headers)` | Recherche regex dans le texte de la page, avec contexte. |
-| `http_call(url, method, headers, body, max_chars)` | Appelle une API HTTP. `method` : `GET`/`POST`/`PUT`/`PATCH`/`DELETE` (query parameters dans `url`). `body` : string tel quel, ou dict/liste envoyé en JSON. Renvoie `status` + corps (JSON pretty-printé si possible) ; les 4xx/5xx sont renvoyés comme résultats normaux. |
+| `scrape(url, format, max_chars, headers, proxy)` | Récupère une URL. `format` : `text`, `markdown`, `html`, `links`, `tables` (CSV), `json`. `headers` pour pages protégées (Cookie, Authorization…). |
+| `search(url, pattern, ignore_case, max_matches, context_chars, headers, proxy)` | Recherche regex dans le texte de la page, avec contexte. |
+| `http_call(url, method, headers, body, max_chars, proxy)` | Appelle une API HTTP. `method` : `GET`/`POST`/`PUT`/`PATCH`/`DELETE` (query parameters dans `url`). `body` : string tel quel, ou dict/liste envoyé en JSON. Renvoie `status` + corps (JSON pretty-printé si possible) ; les 4xx/5xx sont renvoyés comme résultats normaux. |
+
+> **Proxy (paramètre `proxy`, commun aux trois outils)** : `""` = direct
+> (défaut, les variables `*_PROXY` de la VM sont ignorées), `"system"` =
+> utiliser les variables `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` de la VM,
+> ou une URL de proxy (`http://user:pass@host:port`).
 
 ## Configuration (variables d'environnement)
 
